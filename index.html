@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LP Visual Solver — Двомовний</title>
+  <style>
+    :root{
+      --bg:#f7fafc; --card:#fff; --muted:#666; --accent:#2b6cb0; --accent-2:#d53f8c;
+    }
+    *{box-sizing:border-box;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif}
+    body{margin:0;background:var(--bg);color:#111;padding:18px}
+    .container{max-width:1100px;margin:0 auto}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+    h1{margin:0;font-size:20px}
+    .row{display:flex;gap:12px;align-items:flex-start}
+    .col{background:var(--card);padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+    .left{width:360px}
+    .right{flex:1}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type="number"], input[type="text"], select{width:100%;padding:8px;border:1px solid #e6eef6;border-radius:6px}
+    .small{width:84px;display:inline-block}
+    .btn{display:inline-block;padding:8px 12px;border-radius:6px;border:0;cursor:pointer}
+    .btn.primary{background:var(--accent);color:#fff}
+    .btn.ghost{background:#eef6ff;border:1px solid #dbeffd}
+    .constraints{max-height:320px;overflow:auto;margin-bottom:8px}
+    .constraint{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+    .constraint input{padding:6px;width:70px}
+    .constraint .remove{background:#ffebe9;color:#a33;padding:6px;border-radius:6px;border:0}
+    .info{font-size:13px;color:var(--muted);margin-top:8px}
+    svg{width:100%;height:600px;border-radius:6px;background:#fff;display:block}
+    .status{margin-top:8px;font-size:14px}
+    .opt{font-weight:700;color:var(--accent-2)}
+    .hstack{display:flex;gap:8px;align-items:center}
+    .lang-toggle{padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #e0e6ef;cursor:pointer}
+    footer{margin-top:12px;font-size:13px;color:var(--muted)}
+    @media(max-width:900px){.row{flex-direction:column}.left{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1 id="title">LP Visual Solver — Двомовний (UA / EN)</h1>
+      <div class="hstack">
+        <div>
+          <select id="lang" class="lang-toggle" title="Change language">
+            <option value="ua">Українська / UA</option>
+            <option value="en">English / EN</option>
+          </select>
+        </div>
+        <button id="reset" class="btn ghost" title="Reset UI">Reset</button>
+      </div>
+    </header>
+
+    <div class="row">
+      <div class="col left">
+        <div>
+          <label id="objLabel">Цільова функція — Максимізувати (Maximize)</label>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <input id="a" type="number" value="3" step="any" title="coefficient a"/>
+            <span style="align-self:center">× x₁ +</span>
+            <input id="b" type="number" value="2" step="any" title="coefficient b"/>
+            <span style="align-self:center">× x₂</span>
+          </div>
+
+          <label><input id="nonneg" type="checkbox" checked/> <span id="nonnegLabel">x₁, x₂ ≥ 0 (Non-negativity)</span></label>
+        </div>
+
+        <hr style="margin:12px 0"/>
+
+        <div>
+          <label id="consLabel">Обмеження / Constraints</label>
+          <div class="constraints" id="constraintsList"></div>
+          <div style="display:flex;gap:8px">
+            <button id="addCons" class="btn primary">+ <span id="addConsLabel">Додати</span></button>
+            <button id="solve" class="btn" style="background:#10b981;color:#fff">Solve / Розв'язати</button>
+            <button id="exportCSV" class="btn ghost">Export CSV</button>
+          </div>
+          <div class="info" id="hint">Формат: c × x₁ + d × x₂ ≤ s</div>
+        </div>
+
+        <div style="margin-top:12px;">
+          <div class="status" id="status"></div>
+          <div id="solutionBox" style="margin-top:8px"></div>
+        </div>
+
+      </div>
+
+      <div class="col right">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div id="graphTitle" style="font-weight:600">Графічне відображення / Graph</div>
+          <div style="font-size:13px;color:var(--muted)">SVG render — client only</div>
+        </div>
+        <svg id="svg" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="info" style="margin-top:8px" id="notes">Notes: sampling used for shading; unboundedness is heuristic.</div>
+      </div>
+    </div>
+
+    <footer id="footer">Save this file and open in browser. Works offline.</footer>
+  </div>
+
+<script>
+/* ======= Bilingual texts ======= */
+const TEXT = {
+  ua: {
+    title: 'LP Visual Solver — Двомовний (UA / EN)',
+    objLabel: 'Цільова функція — Максимізувати (Maximize)',
+    nonnegLabel: 'x₁, x₂ ≥ 0 (Невід’ємність)',
+    consLabel: 'Обмеження / Constraints',
+    addCons: 'Додати',
+    hint: 'Формат: c × x₁ + d × x₂ ≤ s',
+    solve: "Розв'язати",
+    exportCSV: 'Експорт CSV',
+    notes: 'Примітка: затінення приблизне; перевірка необмеженості — евристика.',
+    status_infeasible: 'Немає допустимих точок (неприпустимо).',
+    status_unbounded: 'Цільова функція необмежена (немає максимума).',
+    status_optimal: 'Оптимальний розв\'язок знайдено:',
+    reset_title: 'Скинути',
+  },
+  en: {
+    title: 'LP Visual Solver — Bilingual (UA / EN)',
+    objLabel: 'Objective — Maximize',
+    nonnegLabel: 'x₁, x₂ ≥ 0 (Non-negativity)',
+    consLabel: 'Constraints',
+    addCons: 'Add',
+    hint: 'Format: c × x₁ + d × x₂ ≤ s',
+    solve: 'Solve',
+    exportCSV: 'Export CSV',
+    notes: 'Note: shading is approximate; unboundedness detection is heuristic.',
+    status_infeasible: 'No feasible points (infeasible).',
+    status_unbounded: 'Objective appears unbounded (no finite maximum).',
+    status_optimal: 'Optimal solution found:',
+    reset_title: 'Reset',
+  }
+};
+
+/* ======= App State ======= */
+let lang = localStorage.getItem('lp_lang') || 'ua';
+const svg = document.getElementById('svg');
+const constraintsList = document.getElementById('constraintsList');
+const statusDiv = document.getElementById('status');
+const solutionBox = document.getElementById('solutionBox');
+
+let constraints = [
+  { id: genId(), c: 1, d: 0, s: 6 },
+  { id: genId(), c: 0, d: 1, s: 4 }
+];
+
+function genId(){ return 'id'+Math.random().toString(36).slice(2,9); }
+
+/* ======= UI wiring ======= */
+const elTitle = document.getElementById('title');
+const elObjLabel = document.getElementById('objLabel');
+const elNonnegLabel = document.getElementById('nonnegLabel');
+const elConsLabel = document.getElementById('consLabel');
+const elAddCons = document.getElementById('addCons');
+const elAddConsLabel = document.getElementById('addConsLabel');
+const elHint = document.getElementById('hint');
+const elSolve = document.getElementById('solve');
+const elExport = document.getElementById('exportCSV');
+const elNotes = document.getElementById('notes');
+const langSelect = document.getElementById('lang');
+const resetBtn = document.getElementById('reset');
+
+langSelect.value = lang;
+applyLang();
+
+/* render constraints inputs */
+function renderConstraints(){
+  constraintsList.innerHTML = '';
+  constraints.forEach((ln, idx) => {
+    const row = document.createElement('div');
+    row.className = 'constraint';
+    row.innerHTML = `
+      <input type="number" step="any" class="c" data-id="${ln.id}" value="${ln.c}" title="c"/>
+      <span style="font-size:13px">× x₁ +</span>
+      <input type="number" step="any" class="d" data-id="${ln.id}" value="${ln.d}" title="d"/>
+      <span style="font-size:13px">× x₂ ≤</span>
+      <input type="number" step="any" class="s" data-id="${ln.id}" value="${ln.s}" title="s"/>
+      <button class="remove" data-id="${ln.id}" title="Remove">✕</button>
+    `;
+    constraintsList.appendChild(row);
+  });
+  // attach listeners
+  constraintsList.querySelectorAll('input.c').forEach(i=>{
+    i.addEventListener('change', (e)=> updateConstraint(e.target.dataset.id,'c',parseFloat(e.target.value)));
+  });
+  constraintsList.querySelectorAll('input.d').forEach(i=>{
+    i.addEventListener('change', (e)=> updateConstraint(e.target.dataset.id,'d',parseFloat(e.target.value)));
+  });
+  constraintsList.querySelectorAll('input.s').forEach(i=>{
+    i.addEventListener('change', (e)=> updateConstraint(e.target.dataset.id,'s',parseFloat(e.target.value)));
+  });
+  constraintsList.querySelectorAll('button.remove').forEach(b=>{
+    b.addEventListener('click', (e)=> {
+      removeConstraint(e.target.dataset.id);
+    });
+  });
+}
+
+function updateConstraint(id,key,value){
+  constraints = constraints.map(ln => ln.id===id ? {...ln,[key]:Number(value)} : ln);
+  // live redraw optionally
+}
+
+function removeConstraint(id){
+  constraints = constraints.filter(ln => ln.id!==id);
+  renderConstraints();
+  drawEmpty();
+}
+
+elAddCons.addEventListener('click', ()=>{
+  constraints.push({ id: genId(), c: 1, d: 1, s: 5 });
+  renderConstraints();
+});
+
+elSolve.addEventListener('click', solveClicked);
+
+elExport.addEventListener('click', ()=>{
+  // export constraints and objective to CSV
+  const a = Number(document.getElementById('a').value) || 0;
+  const b = Number(document.getElementById('b').value) || 0;
+  let csv = 'type,a,b,c,d,s\\n';
+  csv += `objective,${a},${b},, ,\\n`;
+  constraints.forEach(ln=>{
+    csv += `constraint,, ,${ln.c},${ln.d},${ln.s}\\n`;
+  });
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const ael = document.createElement('a');
+  ael.href = url; ael.download = 'lp_export.csv'; document.body.appendChild(ael); ael.click(); ael.remove();
+});
+
+langSelect.addEventListener('change', (e)=>{
+  lang = e.target.value;
+  localStorage.setItem('lp_lang', lang);
+  applyLang();
+});
+
+resetBtn.addEventListener('click', ()=>{
+  constraints = [{ id: genId(), c:1, d:0, s:6 }, { id: genId(), c:0, d:1, s:4 }];
+  document.getElementById('a').value = 3;
+  document.getElementById('b').value = 2;
+  document.getElementById('nonneg').checked = true;
+  renderConstraints();
+  drawEmpty();
+});
+
+/* Set texts for selected language */
+function applyLang(){
+  const t = TEXT[lang];
+  elTitle.textContent = t.title;
+  elObjLabel.textContent = t.objLabel;
+  elNonnegLabel.textContent = t.nonnegLabel;
+  elConsLabel.textContent = t.consLabel;
+  elAddConsLabel.textContent = t.addCons;
+  elAddCons.title = t.addCons;
+  elHint.textContent = t.hint;
+  elSolve.textContent = t.solve;
+  elExport.textContent = t.exportCSV;
+  elNotes.textContent = t.notes;
+  resetBtn.textContent = t.reset_title;
+  renderConstraints();
+  drawEmpty();
+}
+
+/* ======= Math & Solver ======= */
+
+/* Helpers: intersection of two lines c1 x + d1 y = s1 and c2 x + d2 y = s2 */
+function intersect(l1,l2){
+  const c1=l1.c,d1=l1.d,s1=l1.s;
+  const c2=l2.c,d2=l2.d,s2=l2.s;
+  const det = c1*d2 - c2*d1;
+  if(Math.abs(det) < 1e-9) return null;
+  const x = (s1*d2 - s2*d1)/det;
+  const y = (c1*s2 - c2*s1)/det;
+  if(!isFinite(x) || !isFinite(y)) return null;
+  return {x,y};
+}
+
+/* Build candidate points */
+function generateCandidates(){
+  const lines = constraints.map(c=>({...c}));
+  const pts = [];
+  // pairwise
+  for(let i=0;i<lines.length;i++){
+    for(let j=i+1;j<lines.length;j++){
+      const p = intersect(lines[i], lines[j]);
+      if(p) pts.push(p);
+    }
+  }
+  // axes if nonneg
+  const nonneg = document.getElementById('nonneg').checked;
+  if(nonneg){
+    const x0 = {c:1,d:0,s:0}; const y0 = {c:0,d:1,s:0};
+    lines.forEach(ln=>{
+      const px = intersect(ln, y0);
+      const py = intersect(ln, x0);
+      if(px) pts.push(px);
+      if(py) pts.push(py);
+    });
+    pts.push({x:0,y:0});
+  }
+  // add some bounding box corners for unbounded tests
+  const BOX = 1e2;
+  pts.push({x:BOX,y:0},{x:0,y:BOX},{x:BOX,y:BOX},{x:-BOX,y:BOX},{x:BOX,y:-BOX});
+  // dedupe
+  const seen = new Set(); const uniq = [];
+  pts.forEach(p=>{
+    if(!isFinite(p.x) || !isFinite(p.y)) return;
+    const k = `${p.x.toFixed(8)},${p.y.toFixed(8)}`;
+    if(!seen.has(k)){ seen.add(k); uniq.push(p);}
+  });
+  return uniq;
+}
+
+/* Feasibility check */
+function isFeasible(pt){
+  const eps = 1e-7;
+  for(const ln of constraints){
+    if(ln.c*pt.x + ln.d*pt.y > ln.s + eps) return false;
+  }
+  if(document.getElementById('nonneg').checked){
+    if(pt.x < -1e-8 || pt.y < -1e-8) return false;
+  }
+  return true;
+}
+
+/* Evaluate objective */
+function objValue(pt){
+  const a = Number(document.getElementById('a').value) || 0;
+  const b = Number(document.getElementById('b').value) || 0;
+  return a*pt.x + b*pt.y;
+}
+
+/* Solve handler */
+function solveClicked(){
+  statusDiv.textContent = '';
+  solutionBox.innerHTML = '';
+  // gather candidates
+  const candidates = generateCandidates();
+  const feasible = candidates.filter(isFeasible);
+  if(feasible.length===0){
+    statusDiv.textContent = TEXT[lang].status_infeasible;
+    drawEmpty();
+    return;
+  }
+  // find best
+  let best = null; let bestVal = -Infinity;
+  for(const p of feasible){
+    const val = objValue(p);
+    if(val > bestVal){ bestVal = val; best = {...p}; }
+  }
+
+  // heuristic unbounded check: sample boundary points on large box
+  const BOX = 1e2;
+  let foundLarger = false;
+  for(let t=0;t<=1;t+=0.02){
+    const samples = [
+      {x:BOX*t, y:0}, {x:0, y:BOX*t}, {x:BOX*t, y:BOX}, {x:BOX, y:BOX*t}
+    ];
+    for(const spt of samples){
+      if(isFeasible(spt)){
+        const val = objValue(spt);
+        if(val > bestVal + 1e-6){ foundLarger = true; break; }
+      }
+    }
+    if(foundLarger) break;
+  }
+  if(foundLarger){
+    statusDiv.textContent = TEXT[lang].status_unbounded;
+    drawFeasible(null, true);
+    return;
+  }
+  // output solution
+  statusDiv.textContent = TEXT[lang].status_optimal;
+  solutionBox.innerHTML = `<div style="margin-top:6px">
+    <div><strong>x₁:</strong> ${round(best.x,6)}</div>
+    <div><strong>x₂:</strong> ${round(best.y,6)}</div>
+    <div><strong>Objective:</strong> ${round(bestVal,6)}</div>
+  </div>`;
+  drawFeasible(best, false);
+}
+
+/* Utility rounding */
+function round(v, k=6){ return Math.round(v*(10**k))/(10**k) }
+
+/* ======= Drawing ======= */
+
+/* Compute hull by sampling grid then convex hull (monotone chain) */
+function computeFeasibleHull(view){
+  const pts = [];
+  const steps = 60;
+  const {minX,maxX,minY,maxY} = view;
+  for(let i=0;i<=steps;i++){
+    for(let j=0;j<=steps;j++){
+      const x = minX + (i/steps)*(maxX-minX);
+      const y = minY + (j/steps)*(maxY-minY);
+      if(isFeasible({x,y})) pts.push({x,y});
+    }
+  }
+  if(pts.length===0) return null;
+  // convex hull
+  pts.sort((p,q)=> p.x===q.x ? p.y-q.y : p.x-q.x);
+  const cross = (o,a,b)=> (a.x-o.x)*(b.y-o.y) - (a.y-o.y)*(b.x-o.x);
+  const lower=[]; for(const p of pts){ while(lower.length>=2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop(); lower.push(p); }
+  const upper=[]; for(let i=pts.length-1;i>=0;i--){ const p=pts[i]; while(upper.length>=2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop(); upper.push(p); }
+  upper.pop(); lower.pop();
+  return lower.concat(upper);
+}
+
+/* Determine view box to include interesting points */
+function computeView(){
+  const xs = []; const ys = [];
+  constraints.forEach(ln=>{
+    // sample possible intercepts
+    for(let t=-5;t<=5;t++){ xs.push(t); ys.push(t); }
+  });
+  const candidates = generateCandidates();
+  candidates.forEach(p=>{ xs.push(p.x); ys.push(p.y); });
+  // include objective coefficients as tiny influence
+  const a = Number(document.getElementById('a').value)||0;
+  const b = Number(document.getElementById('b').value)||0;
+  xs.push(a,b); ys.push(a,b);
+  const minX = Math.min(...xs, 0); const maxX = Math.max(...xs, 10);
+  const minY = Math.min(...ys, 0); const maxY = Math.max(...ys, 10);
+  const padX = (maxX-minX)*0.12 + 1; const padY = (maxY-minY)*0.12 + 1;
+  return { minX: minX-padX, maxX: maxX+padX, minY: minY-padY, maxY: maxY+padY };
+}
+
+/* Project functions to SVG 600x600 */
+function projX(x,view){ return ( (x - view.minX) / (view.maxX - view.minX) ) * 600; }
+function projY(y,view){ return 600 - ( (y - view.minY) / (view.maxY - view.minY) ) * 600; }
+
+/* Draw constraints, feasible region, and optimal point */
+function drawFeasible(opt, unbounded=false){
+  const view = computeView();
+  const hull = computeFeasibleHull(view);
+  // clear svg
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  // axes
+  const xAxis = document.createElementNS('http://www.w3.org/2000/svg','line');
+  xAxis.setAttribute('x1',0); xAxis.setAttribute('x2',600); xAxis.setAttribute('y1',projY(0,view)); xAxis.setAttribute('y2',projY(0,view));
+  xAxis.setAttribute('stroke','#888'); xAxis.setAttribute('stroke-width','1'); svg.appendChild(xAxis);
+  const yAxis = document.createElementNS('http://www.w3.org/2000/svg','line');
+  yAxis.setAttribute('x1',projX(0,view)); yAxis.setAttribute('x2',projX(0,view)); yAxis.setAttribute('y1',0); yAxis.setAttribute('y2',600);
+  yAxis.setAttribute('stroke','#888'); yAxis.setAttribute('stroke-width','1'); svg.appendChild(yAxis);
+
+  // shading polygon
+  if(hull && hull.length>=3){
+    const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    const pts = hull.map(p => `${projX(p.x,view)},${projY(p.y,view)}`).join(' ');
+    poly.setAttribute('points', pts);
+    poly.setAttribute('fill','#cde9c7');
+    poly.setAttribute('stroke','none');
+    svg.appendChild(poly);
+  }
+
+  // draw constraints (lines)
+  constraints.forEach(ln=>{
+    // compute two far points on the line for display
+    const range = (view.maxX - view.minX) * 1.5;
+    let p1,p2;
+    if(Math.abs(ln.d) > 1e-9){
+      p1 = { x: view.minX - range, y: (ln.s - ln.c*(view.minX - range))/ln.d };
+      p2 = { x: view.maxX + range, y: (ln.s - ln.c*(view.maxX + range))/ln.d };
+    } else if(Math.abs(ln.c) > 1e-9){
+      // vertical
+      const x = ln.s/ln.c;
+      p1 = { x, y: view.minY - range };
+      p2 = { x, y: view.maxY + range };
+    } else {
+      p1 = {x:view.minX - range, y:view.minY - range};
+      p2 = {x:view.maxX + range, y:view.maxY + range};
+    }
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    const d = `M ${projX(p1.x,view)} ${projY(p1.y,view)} L ${projX(p2.x,view)} ${projY(p2.y,view)}`;
+    path.setAttribute('d', d);
+    path.setAttribute('stroke', '#2b6cb0');
+    path.setAttribute('stroke-width','2');
+    path.setAttribute('stroke-dasharray','6 4');
+    path.setAttribute('fill','none');
+    svg.appendChild(path);
+    // label
+    const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+    txt.setAttribute('x', (projX(p1.x,view)+projX(p2.x,view))/2 );
+    txt.setAttribute('y', (projY(p1.y,view)+projY(p2.y,view))/2 );
+    txt.setAttribute('font-size', '11');
+    txt.textContent = `${ln.c}x + ${ln.d}y ≤ ${ln.s}`;
+    svg.appendChild(txt);
+  });
+
+  // feasible sample points (small dots)
+  const candidates = generateCandidates().filter(isFeasible);
+  candidates.forEach(p=>{
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx', projX(p.x,view)); c.setAttribute('cy', projY(p.y,view)); c.setAttribute('r','3');
+    c.setAttribute('fill','#333');
+    svg.appendChild(c);
+  });
+
+  // optimal point
+  if(opt){
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx', projX(opt.x,view)); c.setAttribute('cy', projY(opt.y,view)); c.setAttribute('r','6');
+    c.setAttribute('fill', '#d53f8c');
+    svg.appendChild(c);
+    const lab = document.createElementNS('http://www.w3.org/2000/svg','text');
+    lab.setAttribute('x', projX(opt.x,view)+10); lab.setAttribute('y', projY(opt.y,view)-10);
+    lab.setAttribute('font-size','13'); lab.setAttribute('font-weight','700'); lab.textContent = 'Optimal';
+    svg.appendChild(lab);
+  }
+
+  if(unbounded){
+    // indicate unbounded by fading region and show arrow
+    const note = document.createElementNS('http://www.w3.org/2000/svg','text');
+    note.setAttribute('x', 12); note.setAttribute('y', 18); note.setAttribute('font-size','13'); note.setAttribute('fill','#a33');
+    note.textContent = 'UNBOUNDED';
+    svg.appendChild(note);
+  }
+}
+
+/* draw when nothing solved yet */
+function drawEmpty(){
+  // simply draw constraints and empty shading
+  drawFeasible(null, false);
+}
+
+/* init */
+renderConstraints();
+drawEmpty();
+
+</script>
+</body>
+</html>
